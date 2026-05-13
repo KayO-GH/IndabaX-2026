@@ -725,67 +725,321 @@ FROM products
 WHERE price * 1.15 > 100;
 
 
+============================================================
+--  PART 6 — MODULE 5: AGGREGATION
+--  Learning goal: summarise data using GROUP BY, COUNT, SUM,
+--  AVG, MIN, MAX and filter grouped results with HAVING.
+--
+--  Timing: ~20 minutes (fits by trimming the SQL flavours
+--  comparison table from Module 4 — that content is reference
+--  material learners can read independently)
 -- ============================================================
---  CAPSTONE PRACTICE
-
---  Write these queries independently. Use everything from today.
---  No joins needed — all answers come from a single table.
--- ============================================================
-
--- 1. Active products with fewer than 100 units in stock,
---    sorted by stock ascending.
-SELECT name, category, stock_qty
-FROM products
-WHERE is_active  = TRUE
-  AND stock_qty  < 100
-ORDER BY stock_qty ASC;
-
-
--- 2. Customers who joined in 2023.
---    Show full name as "Full Name" and joined_date as "Joined".
+ 
+-- ── Why aggregation? ─────────────────────────────────────────
+-- SELECT returns one row per record.
+-- Aggregation collapses multiple rows into a single summary value.
+-- This is the foundation of every dashboard, report, and KPI.
+ 
+ 
+-- ── COUNT ────────────────────────────────────────────────────
+ 
+-- How many rows are in the table?
+SELECT COUNT(*) AS total_orders
+FROM orders;
+ 
+-- COUNT(*) counts all rows including NULLs.
+-- COUNT(column) counts only non-NULL values in that column.
 SELECT
-    first_name || ' ' || last_name  AS "Full Name",
-    joined_date                     AS "Joined"
+    COUNT(*)             AS total_orders,
+    COUNT(total_amount)  AS orders_with_amount
+FROM orders;
+-- If these numbers differ, some rows have NULL in total_amount.
+ 
+-- Count with a filter — how many orders were delivered?
+SELECT COUNT(*) AS delivered_orders
+FROM orders
+WHERE status = 'delivered';
+ 
+ 
+-- ── SUM and AVG ──────────────────────────────────────────────
+ 
+-- Total revenue from all delivered orders
+SELECT SUM(total_amount) AS total_revenue
+FROM orders
+WHERE status = 'delivered';
+ 
+-- Average order value across all completed (non-pending) orders
+SELECT ROUND(AVG(total_amount), 2) AS avg_order_value
+FROM orders
+WHERE status != 'pending';
+ 
+ 
+-- ── MIN and MAX ──────────────────────────────────────────────
+ 
+SELECT
+    MIN(price)  AS cheapest_product,
+    MAX(price)  AS most_expensive_product,
+    AVG(price)  AS average_price
+FROM products
+WHERE is_active = TRUE;
+ 
+ 
+-- ── GROUP BY — aggregating per group ─────────────────────────
+-- Without GROUP BY, aggregates collapse the entire table to one row.
+-- GROUP BY splits the table into groups first, then aggregates each group.
+ 
+-- How many orders does each status have?
+SELECT
+    status,
+    COUNT(*) AS order_count
+FROM orders
+GROUP BY status
+ORDER BY order_count DESC;
+ 
+-- Total stock quantity and average price per category
+SELECT
+    category,
+    COUNT(*)                    AS product_count,
+    SUM(stock_qty)              AS total_stock,
+    ROUND(AVG(price), 2)        AS avg_price,
+    MIN(price)                  AS min_price,
+    MAX(price)                  AS max_price
+FROM products
+GROUP BY category
+ORDER BY category;
+ 
+-- How many customers joined per year?
+SELECT
+    EXTRACT(YEAR FROM joined_date)  AS join_year,
+    COUNT(*)                        AS new_customers
 FROM customers
-WHERE joined_date BETWEEN '2023-01-01' AND '2023-12-31'
-ORDER BY joined_date;
-
-
--- 3. Orders with total_amount > 100, excluding cancelled.
---    Sorted by total_amount descending.
+GROUP BY EXTRACT(YEAR FROM joined_date)
+ORDER BY join_year;
+ 
+ 
+-- ── A common GROUP BY mistake ────────────────────────────────
+-- Every column in SELECT must either be in GROUP BY
+-- or wrapped in an aggregate function.
+-- This FAILS — name is not aggregated or grouped:
+--
+-- SELECT category, name, COUNT(*)
+-- FROM products
+-- GROUP BY category;
+-- ERROR: column "products.name" must appear in the GROUP BY clause
+--        or be used in an aggregate function
+ 
+ 
+-- ── HAVING — filtering on aggregated results ─────────────────
+-- WHERE filters individual rows BEFORE grouping.
+-- HAVING filters groups AFTER aggregation.
+ 
+-- Which categories have more than 3 products?
+SELECT
+    category,
+    COUNT(*) AS product_count
+FROM products
+GROUP BY category
+HAVING COUNT(*) > 3;
+ 
+-- Which order statuses have a total value above 200 GHS?
+SELECT
+    status,
+    COUNT(*)                    AS order_count,
+    ROUND(SUM(total_amount), 2) AS total_value
+FROM orders
+GROUP BY status
+HAVING SUM(total_amount) > 200
+ORDER BY total_value DESC;
+ 
+-- WHERE vs HAVING used together:
+-- Filter rows first with WHERE, then filter groups with HAVING.
+-- Orders placed in 2024 only: which statuses have more than 1 order?
+SELECT
+    status,
+    COUNT(*) AS order_count
+FROM orders
+WHERE order_date >= '2024-01-01'     -- WHERE: filters individual rows first
+GROUP BY status
+HAVING COUNT(*) > 1                  -- HAVING: filters groups after aggregation
+ORDER BY order_count DESC;
+ 
+ 
+-- ── Exercise 5: Aggregation ──────────────────────────────────
+-- Write each query yourself before checking the answer.
+ 
+-- Q1. How many products are there in each category?
+--     Show category and product count. Sort by count descending.
+SELECT
+    category,
+    COUNT(*) AS product_count
+FROM products
+GROUP BY category
+ORDER BY product_count DESC;
+ 
+-- Q2. What is the total value of stock on hand per category?
+--     (Total value = price * stock_qty for each product, summed per category.)
+--     Show only active products. Sort by total value descending.
+SELECT
+    category,
+    ROUND(SUM(price * stock_qty), 2)  AS total_stock_value
+FROM products
+WHERE is_active = TRUE
+GROUP BY category
+ORDER BY total_stock_value DESC;
+ 
+-- Q3. How many orders has each customer placed?
+--     Show customer_id and order count.
+--     Only show customers with more than 1 order.
+SELECT
+    customer_id,
+    COUNT(*)  AS order_count
+FROM orders
+GROUP BY customer_id
+HAVING COUNT(*) > 1
+ORDER BY order_count DESC;
+ 
+-- Q4. What is the average total_amount for each order status?
+--     Round to 2 decimal places. Exclude NULL amounts.
+--     (Hint: COUNT(*) vs COUNT(column) — which handles NULLs correctly here?)
+SELECT
+    status,
+    COUNT(total_amount)              AS counted_orders,  -- skips NULLs
+    ROUND(AVG(total_amount), 2)      AS avg_order_value
+FROM orders
+GROUP BY status
+ORDER BY avg_order_value DESC;
+ 
+-- Q5. STRETCH: Find categories where the average product price
+--     is above 60 GHS. Show category and average price (rounded).
+--     Only include active products in the calculation.
+SELECT
+    category,
+    ROUND(AVG(price), 2)  AS avg_price
+FROM products
+WHERE is_active = TRUE
+GROUP BY category
+HAVING AVG(price) > 60
+ORDER BY avg_price DESC;
+ 
+ 
+-- ============================================================
+--  PART 7 — MODULE 6: CAPSTONE PRACTICE
+-- ============================================================
+ 
+-- ── Challenge 1 ──────────────────────────────────────────────
+-- The operations team wants a status summary for all orders
+-- placed in 2024. For each status, show:
+--   - the number of orders (as "Order Count")
+--   - the total value (as "Total Value (GHS)", rounded to 2dp)
+--   - the average value (as "Avg Value (GHS)", rounded to 2dp)
+-- Sort by Total Value descending.
+-- Exclude any status group where the total value is below 50 GHS.
+ 
+SELECT
+    status                              AS "Status",
+    COUNT(*)                            AS "Order Count",
+    ROUND(SUM(total_amount),  2)        AS "Total Value (GHS)",
+    ROUND(AVG(total_amount),  2)        AS "Avg Value (GHS)"
+FROM orders
+WHERE order_date >= '2024-01-01'
+GROUP BY status
+HAVING SUM(total_amount) >= 50
+ORDER BY SUM(total_amount) DESC;
+ 
+ 
+-- ── Challenge 2 ──────────────────────────────────────────────
+-- The buying team wants to review the active product catalogue.
+-- For each category, show:
+--   - number of active products
+--   - cheapest and most expensive active product price
+--   - total units in stock
+-- Only show categories that have at least 2 active products.
+-- Sort alphabetically by category.
+ 
+SELECT
+    category                            AS "Category",
+    COUNT(*)                            AS "Active Products",
+    MIN(price)                          AS "Lowest Price (GHS)",
+    MAX(price)                          AS "Highest Price (GHS)",
+    SUM(stock_qty)                      AS "Total Units in Stock"
+FROM products
+WHERE is_active = TRUE
+GROUP BY category
+HAVING COUNT(*) >= 2
+ORDER BY category;
+ 
+ 
+-- ── Challenge 3 ──────────────────────────────────────────────
+-- Find all products that are:
+--   - active
+--   - priced above the average price of ALL active products
+-- Show name, category, and price.
+-- Sort by price descending.
+-- Hint: you will need a subquery in WHERE to get the average first.
+ 
+SELECT
+    name,
+    category,
+    price
+FROM products
+WHERE is_active = TRUE
+  AND price > (
+        SELECT AVG(price)
+        FROM products
+        WHERE is_active = TRUE
+      )
+ORDER BY price DESC;
+ 
+ 
+-- ── Challenge 4 ──────────────────────────────────────────────
+-- A report needs to show each city alongside:
+--   - the number of customers based there
+--   - the earliest join date (as "First Member Joined")
+--   - the most recent join date (as "Latest Member Joined")
+-- Only include cities with more than 1 customer.
+-- Sort by customer count descending.
+ 
+SELECT
+    city                                    AS "City",
+    COUNT(*)                                AS "Customers",
+    MIN(joined_date)                        AS "First Member Joined",
+    MAX(joined_date)                        AS "Latest Member Joined"
+FROM customers
+GROUP BY city
+HAVING COUNT(*) > 1
+ORDER BY COUNT(*) DESC;
+ 
+ 
+-- ── Challenge 5 (STRETCH) ────────────────────────────────────
+-- The finance team wants to identify high-value pending business.
+-- Find all pending orders where total_amount is above the average
+-- total_amount of ALL non-cancelled orders.
+-- Show order_id, customer_id, order_date, and total_amount.
+-- Sort by total_amount descending.
+ 
 SELECT
     order_id,
     customer_id,
     order_date,
-    status,
     total_amount
 FROM orders
-WHERE total_amount > 100
-  AND status      != 'cancelled'
+WHERE status       = 'pending'
+  AND total_amount > (
+        SELECT AVG(total_amount)
+        FROM orders
+        WHERE status != 'cancelled'
+      )
 ORDER BY total_amount DESC;
-
-
--- 4. Distinct product categories, sorted alphabetically.
-SELECT DISTINCT category AS "Category"
-FROM products
-ORDER BY "Category";
-
-
--- 5. STRETCH: Customers whose first name starts with 'A' or 'K'.
-SELECT first_name, city
-FROM customers
-WHERE first_name LIKE 'A%'
-   OR first_name LIKE 'K%';
-
-
+ 
+ 
 -- ============================================================
---  DAY 2 PREVIEW QUERIES
-
---  These use concepts introduced in Day 2 (joins, aggregation,
---  date functions). Run them to see where we are heading.
+--  PART 8 — BONUS: DAY 2 PREVIEW QUERIES
+--  These use joins and date functions covered in Day 2.
+--  Run them to see the output — the syntax will be explained
+--  fully tomorrow.
 -- ============================================================
-
--- Preview: joining customers to their orders
+ 
+-- Customer order history (joining two tables)
 SELECT
     c.first_name,
     c.last_name,
@@ -795,6 +1049,42 @@ SELECT
 FROM customers c
 JOIN orders o ON c.customer_id = o.customer_id
 ORDER BY o.order_date DESC;
+ 
+ 
+-- Orders per customer with spend totals (join + aggregation)
+SELECT
+    c.first_name,
+    c.last_name,
+    COUNT(o.order_id)    AS total_orders,
+    SUM(o.total_amount)  AS total_spent
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.first_name, c.last_name
+ORDER BY total_spent DESC;
+ 
+ 
+-- Full order breakdown (three-table join)
+SELECT
+    o.order_id,
+    o.order_date,
+    p.name          AS product,
+    oi.quantity,
+    oi.unit_price
+FROM orders      o
+JOIN order_items oi ON o.order_id    = oi.order_id
+JOIN products    p  ON oi.product_id = p.product_id
+ORDER BY o.order_date DESC, o.order_id;
+ 
+ 
+-- Date functions preview (Day 2 Module 6)
+SELECT
+    order_id,
+    order_date,
+    EXTRACT(YEAR  FROM order_date)  AS order_year,
+    EXTRACT(MONTH FROM order_date)  AS order_month,
+    CURRENT_DATE - order_date       AS days_ago
+FROM orders
+ORDER BY order_date DESC;
 
 
 -- ============================================================
